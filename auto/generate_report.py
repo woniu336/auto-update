@@ -23,6 +23,7 @@ class Movie:
         self.douban_id = self.extract_douban_id()
         self.image_url = ''
         self.cache_key = self._generate_cache_key()
+        self.status = None  # 添加状态属性
 
     def extract_douban_id(self):
         """从豆瓣链接中提取豆瓣ID"""
@@ -127,7 +128,9 @@ class ReportGenerator:
         self.movies = []
         self.total_movies = 0
         self.inaccessible_urls = []
-        self.violation_movies = []  # 新增：存储违规影片列表
+        self.violation_movies = []  # 存储违规影片列表
+        self.check_result_path = '../kua-main/movie_check_result.log'
+        self.check_results = {}  # 存储检查结果
         
         # 创建缓存目录
         os.makedirs(cache_dir, exist_ok=True)
@@ -151,6 +154,27 @@ class ReportGenerator:
                     print(f"清理缓存文件失败 {cache_file}: {str(e)}")
         except Exception as e:
             print(f"清理缓存目录失败: {str(e)}")
+
+    def parse_check_results(self):
+        """解析资源检查结果日志"""
+        try:
+            with open(self.check_result_path, 'r', encoding='utf-8') as file:
+                for line in file:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split('=')
+                    if len(parts) >= 3:
+                        name = parts[0].strip()
+                        status = parts[2].strip()
+                        self.check_results[name] = status
+                        
+            # 更新电影状态
+            for movie in self.movies:
+                movie.status = self.check_results.get(movie.name, '无效')
+                
+        except Exception as e:
+            print(f"解析检查结果失败: {str(e)}")
 
     def parse_log(self):
         with open(self.log_path, 'r', encoding='utf-8') as file:
@@ -273,7 +297,8 @@ class ReportGenerator:
 
     async def run(self):
         self.parse_log()
-        self.parse_quark_log()  # 添加这行
+        self.parse_quark_log()
+        self.parse_check_results()  # 添加检查结果解析
         print("开始异步获取图片...")
         await self.fetch_all_images()
         print("图片获取完成，开始生成HTML...")
@@ -283,9 +308,9 @@ class ReportGenerator:
         # 定义分页变量
         movies_per_page = 25
         total_pages = math.ceil(len(self.movies) / movies_per_page)
-        
         current_time = time.strftime("%Y-%m-%d %H:%M", time.localtime())
-        
+
+        # CSS 样式
         css_styles = '''
         body {
             font-family: Arial, sans-serif;
@@ -347,6 +372,7 @@ class ReportGenerator:
             display: flex;
             flex-direction: column;
             align-items: center;
+            position: relative;
         }
         .movie-card:hover {
             transform: translateY(-5px);
@@ -394,6 +420,26 @@ class ReportGenerator:
         .btn-copy:hover {
             background-color: #45a049;
         }
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1;
+        }
+        .status-valid {
+            background-color: #2c9acb;
+        }
+        .status-blocked {
+            background-color: #FF9800;
+        }
+        .status-invalid {
+            background-color: #f44336;
+        }
         .generation-time {
             text-align: center;
             color: #666;
@@ -424,246 +470,192 @@ class ReportGenerator:
             opacity: 0.5;
             cursor: not-allowed;
         }
-        .violation-section {
-            margin: 20px 0;
-            padding: 20px;
-            background-color: #fff3f3;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .violation-title {
-            color: #ff4444;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        .violation-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-        }
-        .violation-item {
-            background: #fff;
-            padding: 5px 10px;
-            border-radius: 4px;
-            border: 1px solid #ffcccc;
-        }
-        .inaccessible-section {
-            margin: 20px 0;
-            padding: 20px;
-            background-color: #f3f3ff;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .inaccessible-title {
-            color: #4444ff;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        .inaccessible-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-        }
-        .inaccessible-item {
-            background: #fff;
-            padding: 5px 10px;
-            border-radius: 4px;
-            border: 1px solid #ccccff;
-        }
-        .inaccessible-item a {
-            color: #4444ff;
-            text-decoration: none;
-        }
-        .inaccessible-item a:hover {
-            text-decoration: underline;
-        }
-        @media (max-width: 600px) {
-            .stat-circle {
-                width: 100px;
-                height: 100px;
-            }
-            .stat-circle .number {
-                font-size: 20px;
-            }
-            .btn {
-                font-size: 10px;
-                padding: 5px;
-            }
-        }
         '''
 
         html_content = f'''
-        <!DOCTYPE html>
-        <html lang="zh-CN">
-        <head>
-            <meta charset="UTF-8">
-            <title>影片报告</title>
-            <style>
-            {css_styles}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>影片报告</h1>
-                    <div class="generation-time">生成时间：{current_time}</div>
-                    <div class="stats">
-                        <div class="stat-circle">
-                            <h3>总影片数量</h3>
-                            <div class="number">{self.total_movies}</div>
-                        </div>
-                        <div class="stat-circle">
-                            <h3>海外禁看数量</h3>
-                            <div class="number">{len(self.inaccessible_urls)}</div>
-                        </div>
-                        <div class="stat-circle">
-                            <h3>资源失效数量</h3>
-                            <div class="number">{len(self.violation_movies)}</div>
-                        </div>
-                    </div>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>影片报告</title>
+    <style>
+    {css_styles}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>影片报告</h1>
+            <div class="generation-time">生成时间：{current_time}</div>
+            <div class="stats">
+                <div class="stat-circle">
+                    <h3>总影片数量</h3>
+                    <div class="number">{self.total_movies}</div>
                 </div>
-
-                <!-- 添加违规影片展示区域 -->
-                {self._generate_violation_section()}
-
-                <!-- 分页控制 -->
-                <div class="pagination">
-                    <button class="page-btn" onclick="changePage('prev')" id="prevBtn">上一页</button>
-                    <span id="pageInfo"></span>
-                    <button class="page-btn" onclick="changePage('next')" id="nextBtn">下一页</button>
+                <div class="stat-circle">
+                    <h3>海外禁看数量</h3>
+                    <div class="number">{len(self.inaccessible_urls)}</div>
                 </div>
-                
-                <!-- 电影网格 -->
-                <div id="movieGrid" class="movies-grid">
-                </div>
-                
-                <!-- 底部分页控制 -->
-                <div class="pagination">
-                    <button class="page-btn" onclick="changePage('prev')" id="prevBtnBottom">上一页</button>
-                    <span id="pageInfoBottom"></span>
-                    <button class="page-btn" onclick="changePage('next')" id="nextBtnBottom">下一页</button>
+                <div class="stat-circle">
+                    <h3>资源失效数量</h3>
+                    <div class="number">{len(self.violation_movies)}</div>
                 </div>
             </div>
+        </div>
 
-            <script>
-                const moviesData = {json.dumps([{
-                    'name': movie.name,
-                    'image_url': movie.image_url,
-                    'douban_link': movie.douban_link,
-                    'quark_link': movie.quark_link,
-                    'baidu_link': movie.baidu_link,
-                    'uc_link': movie.uc_link
-                } for movie in self.movies])};
+        {self._generate_violation_section()}
+
+        <div class="pagination">
+            <button class="page-btn" onclick="changePage('prev')" id="prevBtn">上一页</button>
+            <span id="pageInfo"></span>
+            <button class="page-btn" onclick="changePage('next')" id="nextBtn">下一页</button>
+        </div>
+        
+        <div id="movieGrid" class="movies-grid">
+        </div>
+        
+        <div class="pagination">
+            <button class="page-btn" onclick="changePage('prev')" id="prevBtnBottom">上一页</button>
+            <span id="pageInfoBottom"></span>
+            <button class="page-btn" onclick="changePage('next')" id="nextBtnBottom">下一页</button>
+        </div>
+    </div>
+
+    <script>
+        const moviesData = {json.dumps([{
+            'name': movie.name,
+            'image_url': movie.image_url,
+            'douban_link': movie.douban_link,
+            'quark_link': movie.quark_link,
+            'baidu_link': movie.baidu_link,
+            'uc_link': movie.uc_link,
+            'status': movie.status
+        } for movie in self.movies])};
+        
+        const MOVIES_PER_PAGE = {movies_per_page};
+        let currentPage = 1;
+        
+        function getStatusBadgeHTML(status) {{
+            let className = '';
+            switch(status) {{
+                case '有效':
+                    className = 'status-valid';
+                    break;
+                case '被屏蔽':
+                    className = 'status-blocked';
+                    break;
+                default:
+                    className = 'status-invalid';
+                    break;
+            }}
+            return `<div class="status-badge ${{className}}">${{status}}</div>`;
+        }}
+        
+        function renderMovies(page) {{
+            const start = (page - 1) * MOVIES_PER_PAGE;
+            const end = start + MOVIES_PER_PAGE;
+            const movieGrid = document.getElementById('movieGrid');
+            movieGrid.innerHTML = '';
+            
+            moviesData.slice(start, end).forEach(movie => {{
+                const buttons = [];
+                if (movie.quark_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.quark_link}}', '夸克链接')">夸克</button>`);
+                if (movie.baidu_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.baidu_link}}', '百度链接')">百度</button>`);
+                if (movie.uc_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.uc_link}}', 'UC链接')">UC</button>`);
                 
-                const MOVIES_PER_PAGE = {movies_per_page};
-                let currentPage = 1;
-                
-                function renderMovies(page) {{
-                    const start = (page - 1) * MOVIES_PER_PAGE;
-                    const end = start + MOVIES_PER_PAGE;
-                    const movieGrid = document.getElementById('movieGrid');
-                    movieGrid.innerHTML = '';
-                    
-                    moviesData.slice(start, end).forEach(movie => {{
-                        const buttons = [];
-                        if (movie.quark_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.quark_link}}', '夸克链接')">夸克</button>`);
-                        if (movie.baidu_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.baidu_link}}', '百度链接')">百度</button>`);
-                        if (movie.uc_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.uc_link}}', 'UC链接')">UC</button>`);
-                        
-                        const movieCard = `
-                            <div class="movie-card">
-                                <img class="movie-image" data-src="${{movie.image_url}}" alt="${{movie.name}} 海报" 
-                                     src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7liqDovb3kuK0uLi48L3RleHQ+PC9zdmc+"
-                                     onclick="extractAndCopyDoubanId('${{movie.douban_link}}')"
-                                     loading="lazy" referrerpolicy="no-referrer">
-                                <div class="movie-info">
-                                    <div class="movie-title">${{movie.name}}</div>
-                                    <div class="button-group">
-                                        ${{buttons.join('')}}
-                                    </div>
-                                </div>
+                const movieCard = `
+                    <div class="movie-card">
+                        ${{getStatusBadgeHTML(movie.status)}}
+                        <img class="movie-image" data-src="${{movie.image_url}}" alt="${{movie.name}} 海报" 
+                             src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7liqDovb3kuK0uLi48L3RleHQ+PC9zdmc+"
+                             onclick="extractAndCopyDoubanId('${{movie.douban_link}}')"
+                             loading="lazy" referrerpolicy="no-referrer">
+                        <div class="movie-info">
+                            <div class="movie-title">${{movie.name}}</div>
+                            <div class="button-group">
+                                ${{buttons.join('')}}
                             </div>
-                        `;
-                        movieGrid.innerHTML += movieCard;
-                    }});
-                    
-                    updatePagination();
-                    initLazyLoading();
-                }}
-                
-                function changePage(action) {{
-                    if (action === 'prev' && currentPage > 1) {{
-                        currentPage--;
-                    }} else if (action === 'next' && currentPage < Math.ceil(moviesData.length / MOVIES_PER_PAGE)) {{
-                        currentPage++;
+                        </div>
+                    </div>
+                `;
+                movieGrid.innerHTML += movieCard;
+            }});
+            
+            updatePagination();
+            initLazyLoading();
+        }}
+        
+        function changePage(action) {{
+            if (action === 'prev' && currentPage > 1) {{
+                currentPage--;
+            }} else if (action === 'next' && currentPage < Math.ceil(moviesData.length / MOVIES_PER_PAGE)) {{
+                currentPage++;
+            }}
+            renderMovies(currentPage);
+            window.scrollTo(0, 0);
+        }}
+        
+        function updatePagination() {{
+            const totalPages = Math.ceil(moviesData.length / MOVIES_PER_PAGE);
+            const pageInfo = `第 ${{currentPage}} / ${{totalPages}} 页`;
+            document.getElementById('pageInfo').textContent = pageInfo;
+            document.getElementById('pageInfoBottom').textContent = pageInfo;
+            
+            document.getElementById('prevBtn').disabled = currentPage === 1;
+            document.getElementById('nextBtn').disabled = currentPage === totalPages;
+            document.getElementById('prevBtnBottom').disabled = currentPage === 1;
+            document.getElementById('nextBtnBottom').disabled = currentPage === totalPages;
+        }}
+        
+        function extractAndCopyDoubanId(url) {{
+            if (!url) {{
+                alert('没有豆瓣链接');
+                return;
+            }}
+            const match = url.match(/subject\\/(\\d+)/);
+            if (match && match[1]) {{
+                copyToClipboard(match[1], '豆瓣ID');
+            }} else {{
+                alert('无法提取豆瓣ID');
+            }}
+        }}
+
+        function copyToClipboard(text, type) {{
+            if (!text) {{
+                alert('没有可复制的内容');
+                return;
+            }}
+            navigator.clipboard.writeText(text).then(function() {{
+                alert(type + '已复制到剪贴板');
+            }}).catch(function(err) {{
+                alert('复制失败：' + err);
+            }});
+        }}
+
+        function initLazyLoading() {{
+            var lazyImages = document.querySelectorAll('img[data-src]');
+            var imageObserver = new IntersectionObserver(function(entries, observer) {{
+                entries.forEach(function(entry) {{
+                    if (entry.isIntersecting) {{
+                        var img = entry.target;
+                        img.src = img.dataset.src;
+                        observer.unobserve(img);
                     }}
-                    renderMovies(currentPage);
-                    window.scrollTo(0, 0);
-                }}
-                
-                function updatePagination() {{
-                    const totalPages = Math.ceil(moviesData.length / MOVIES_PER_PAGE);
-                    const pageInfo = `第 ${{currentPage}} / ${{totalPages}} 页`;
-                    document.getElementById('pageInfo').textContent = pageInfo;
-                    document.getElementById('pageInfoBottom').textContent = pageInfo;
-                    
-                    document.getElementById('prevBtn').disabled = currentPage === 1;
-                    document.getElementById('nextBtn').disabled = currentPage === totalPages;
-                    document.getElementById('prevBtnBottom').disabled = currentPage === 1;
-                    document.getElementById('nextBtnBottom').disabled = currentPage === totalPages;
-                }}
-                
-                document.addEventListener('DOMContentLoaded', function() {{
-                    renderMovies(1);
                 }});
+            }});
 
-                function extractAndCopyDoubanId(url) {{
-                    if (!url) {{
-                        alert('没有豆瓣链接');
-                        return;
-                    }}
-                    const match = url.match(/subject\\/(\\d+)/);
-                    if (match && match[1]) {{
-                        copyToClipboard(match[1], '豆瓣ID');
-                    }} else {{
-                        alert('无法提取豆瓣ID');
-                    }}
-                }}
-
-                function copyToClipboard(text, type) {{
-                    if (!text) {{
-                        alert('没有可复制的内容');
-                        return;
-                    }}
-                    navigator.clipboard.writeText(text).then(function() {{
-                        alert(type + '已复制到剪贴板');
-                    }}).catch(function(err) {{
-                        alert('复制失败：' + err);
-                    }});
-                }}
-
-                function initLazyLoading() {{
-                    var lazyImages = document.querySelectorAll('img[data-src]');
-                    var imageObserver = new IntersectionObserver(function(entries, observer) {{
-                        entries.forEach(function(entry) {{
-                            if (entry.isIntersecting) {{
-                                var img = entry.target;
-                                img.src = img.dataset.src;
-                                observer.unobserve(img);
-                            }}
-                        }});
-                    }});
-
-                    lazyImages.forEach(function(img) {{
-                        imageObserver.observe(img);
-                    }});
-                }}
-            </script>
-        </body>
-        </html>
-        '''
+            lazyImages.forEach(function(img) {{
+                imageObserver.observe(img);
+            }});
+        }}
+        
+        document.addEventListener('DOMContentLoaded', function() {{
+            renderMovies(1);
+        }});
+    </script>
+</body>
+</html>
+'''
 
         with open(self.output_html, 'w', encoding='utf-8') as file:
             file.write(html_content)

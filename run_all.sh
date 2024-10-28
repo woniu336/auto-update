@@ -35,8 +35,14 @@ LOG_FILE="execution.log"
   echo "开始替换夸克网盘..."
   python3 update_links.py || echo "update_links.py 执行失败"
   
+  # 检查链接有效性
+  echo "开始检查链接有效性..."
+  cd ../kua-main
+  python3 check_movie_links.py quark_config.json || echo "check_movie_links.py 执行失败"
+  
   # 生成html页面
   echo "开始生成html页面..."
+  cd ../auto
   python3 generate_report.py || echo "generate_report.py 执行失败"
   
   echo "==================== 完成 $(date) ===================="

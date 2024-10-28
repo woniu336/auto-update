@@ -12,8 +12,9 @@ NC='\033[0m' # No Color
 CONFIG_FILE="./kua-main/quark_config.json"
 COOKIE_FILE="./auto/cookie.txt"
 RUN_ALL_SCRIPT="./run_all.sh"
+MOVIE_LINKS_FILE="./kua-main/check_movie_links.py"  # 添加这行
 
-# 显示菜单
+# 显示菜单部分
 show_menu() {
     clear
     echo -e "${CYAN}┌────────────────────────────────────────────┐${NC}"
@@ -26,7 +27,6 @@ show_menu() {
     echo -e "${LIGHT_CYAN}│  5.${NC} 自动分享测试                         ${CYAN}│${NC}"
     echo -e "${LIGHT_CYAN}│  6.${NC} 手动运行测试                         ${CYAN}│${NC}"
     echo -e "${LIGHT_CYAN}│  7.${NC} 设置定时任务                         ${CYAN}│${NC}"
-    echo -e "${LIGHT_CYAN}│  8.${NC} 设置脚本启动快捷键                   ${CYAN}│${NC}"
     echo -e "${LIGHT_CYAN}│  0.${NC} 退出                                 ${CYAN}│${NC}"
     echo -e "${CYAN}└────────────────────────────────────────────┘${NC}"
 }
@@ -82,12 +82,28 @@ set_dingtalk_notify() {
         return
     fi
 
-    # 更新配置文件
+    # 检查 check_movie_links.py 文件是否存在
+    if [ ! -f "$MOVIE_LINKS_FILE" ]; then
+        echo -e "${RED}错误：找不到文件 $MOVIE_LINKS_FILE${NC}"
+        return
+    fi
+
+    # 更新 quark_config.json
     jq '.push_config.DD_BOT_TOKEN = "'$access_token'" | .push_config.DD_BOT_SECRET = "'$secret'"' $CONFIG_FILE > tmp.$$.json && mv tmp.$$.json $CONFIG_FILE
+
+    # 更新 check_movie_links.py
+    awk -v token="$access_token" -v secret="$secret" '
+    /^ACCESS_TOKEN = / { print "ACCESS_TOKEN = \"" token "\""; next }
+    /^SECRET = / { print "SECRET = \"" secret "\""; next }
+    { print }
+    ' "$MOVIE_LINKS_FILE" > tmp.$$.py && mv tmp.$$.py "$MOVIE_LINKS_FILE"
 
     echo -e "${GREEN}钉钉通知设置已更新${NC}"
     echo -e "${CYAN}Token: $access_token${NC}"
     echo -e "${CYAN}Secret: $secret${NC}"
+    echo -e "${CYAN}已更新以下文件：${NC}"
+    echo -e "${CYAN}1. $CONFIG_FILE${NC}"
+    echo -e "${CYAN}2. $MOVIE_LINKS_FILE${NC}"
 }
 
 # 设置夸克网盘转存目录ID
@@ -181,37 +197,13 @@ set_cron_job() {
     echo -e "${CYAN}将在每天早上7点和下午18点执行脚本: $script_path${NC}"
 }
 
-# 设置脚本启动快捷键
-set_shortcut() {
-    echo -e "${YELLOW}请输入快捷键命令 (例如: q):${NC}"
-    read shortcut
-    
-    if [ -z "$shortcut" ]; then
-        echo -e "${RED}错误：快捷键不能为空${NC}"
-        return
-    fi
-    
-    # 获取当前脚本的绝对路径
-    SCRIPT_PATH=$(readlink -f "$0")
-    
-    # 删除已存在的别名
-    sed -i "/alias.*$(basename $SCRIPT_PATH)/d" ~/.bashrc
-    
-    # 添加新的别名
-    echo "alias $shortcut='bash $SCRIPT_PATH'" >> ~/.bashrc
-    
-    echo -e "${GREEN}快捷键已设置为: $shortcut${NC}"
-    echo -e "${YELLOW}请运行以下命令使设置生效：${NC}"
-    echo -e "${CYAN}source ~/.bashrc${NC}"
-}
-
 # 等待用户按Enter键
 wait_for_enter() {
     echo -e "${YELLOW}按Enter键返回主菜单...${NC}"
     read
 }
 
-# 主循环
+# 主循环部分
 while true; do
     show_menu
     read -p "请选择操作: " choice
@@ -223,7 +215,6 @@ while true; do
         5) test_auto_share; wait_for_enter ;;
         6) run_manual_test; wait_for_enter ;;
         7) set_cron_job; wait_for_enter ;;
-        8) set_shortcut; wait_for_enter ;;
         0) echo -e "${GREEN}退出程序${NC}"; exit 0 ;;
         *) echo -e "${RED}无效的选择，请重新输入${NC}"; wait_for_enter ;;
     esac
