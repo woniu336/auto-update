@@ -1,0 +1,6 @@
+{
+    "require": {
+        "pear/console_table": "^1.3",
+        "yzh52521/easy-excel": "^1.0"
+    }
+}

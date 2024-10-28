@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>夸克自动转存</title>
+  <!-- 引入 Bootstrap CSS -->
+  <link rel="stylesheet" href="./static/css/bootstrap.min.css">
+  <link rel="stylesheet" href="./static/css/bootstrap-icons.css">
+  <style>
+    body {
+      padding-bottom: 60px;
+    }
+
+    .bottom-buttons {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      background-color: #f1f1f1;
+      padding: 10px 0;
+      text-align: center;
+    }
+
+    .title {
+      margin-top: 30px;
+    }
+
+    .modal-body {
+      max-height: calc(100vh - 200px);
+      overflow-y: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app" class="container mt-5">
+    <h1 class="mb-4"><i class="bi bi-clouds"></i> 夸克自动转存</h1>
+    <form @submit.prevent="saveConfig">
+
+      <div class="row title">
+        <div class="col">
+          <h2>Cookie</h2>
+        </div>
+        <div class="col text-right">
+          <button type="button" class="btn btn-outline-primary mb-3" @click="addCookie()">+</button>
+        </div>
+      </div>
+      <p>1. 所有账号执行签到，纯签到只需移动端参数即可！</p>
+      <p>2. 仅第一个账号执行转存，请自行确认顺序。<b>最好是手机验证码<a target="_blank" href="https://pan.quark.cn/">登录</a>，CK比较完整！</b>如需签到参数附在CK后面。</p>
+      <div v-for="(value, index) in formData.cookie" :key="index" class="input-group mb-2">
+        <input type="text" v-model="formData.cookie[index]" class="form-control" placeholder="打开 pan.quark.com 按 F12 抓取">
+        <div class="input-group-append">
+          <button type="button" class="btn btn-outline-danger" @click="removeCookie(index)">-</button>
+        </div>
+      </div>
+
+      <div class="row title">
+        <div class="col">
+          <h2>通知</h2>
+        </div>
+        <div class="col text-right">
+          <button type="button" class="btn btn-outline-primary mb-3" @click="addPush()">+</button>
+        </div>
+      </div>
+      <div v-for="(value, key) in formData.push_config" :key="key" class="input-group mb-2">
+        <div class="input-group-prepend">
+          <span class="input-group-text" v-html="key"></span>
+        </div>
+        <div class="input-group-prepend" v-if="(key == 'DEER_KEY' || key == 'PUSH_KEY')">
+          <a type="button" class="btn btn-warning" target="_blank" href="https://sct.ftqq.com/r/13249" title="Server酱推荐计划"><i class="bi bi-award"></i></a>
+        </div>
+        <input type="text" v-model="formData.push_config[key]" class="form-control">
+        <div class="input-group-append">
+          <button type="button" class="btn btn-outline-danger" @click="removePush(key)">-</button>
+        </div>
+      </div>
+
+      <div class="row title">
+        <div class="col">
+          <h2>Emby</h2>
+        </div>
+      </div>
+      <div class="form-group row">
+        <label class="col-sm-2 col-form-label">Emby URL</label>
+        <div class="col-sm-10">
+          <input type="text" v-model="formData.emby.url" class="form-control" placeholder="可选">
+        </div>
+      </div>
+      <div class="form-group row">
+        <label class="col-sm-2 col-form-label">Emby API Key</label>
+        <div class="col-sm-10">
+          <input type="text" v-model="formData.emby.apikey" class="form-control" placeholder="可选">
+        </div>
+      </div>
+
+      <div class="row title">
+        <div class="col">
+          <h2>定时规则</h2>
+        </div>
+      </div>
+      <div class="form-group row">
+        <label class="col-sm-2 col-form-label">Crontab<span class="badge badge-pill badge-light"><a target="_blank" href="https://tool.lu/crontab/">?</a></span></label>
+        <div class="col-sm-10">
+          <input type="text" v-model="formData.crontab" class="form-control" placeholder="必填">
+        </div>
+      </div>
+
+      <div class="row title">
+        <div class="col">
+          <h2>任务列表</h2>
+        </div>
+      </div>
+      <hr>
+      <div class="row">
+        <div class="col-lg-6 col-md-12">
+          <div class="form-group row">
+            <label class="col-form-label col-md-3">名称筛选</label>
+            <div class="input-group col-md-9">
+              <input type="text" class="form-control" v-model="taskNameFilter" placeholder="名称 筛选/搜索">
+              <div class="input-group-append">
+                <button type="button" class="btn btn-outline-secondary" @click="clearData('taskNameFilter')"><i class="bi bi-x-lg"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6 col-md-12">
+          <div class="form-group row">
+            <label class="col-form-label col-md-3">路径筛选</label>
+            <div class="input-group col-md-9">
+              <select class="form-control" v-model="taskDirSelected">
+                <option v-for="(dir, index) in taskDirs" :value="dir" v-html="dir"></option>
+              </select>
+              <div class="input-group-append">
+                <button type="button" class="btn btn-outline-secondary" @click="clearData('taskDirSelected')"><i class="bi bi-x-lg"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-for="(task, index) in formData.tasklist" :key="index" class="task mb-3">
+        <template v-if="(taskDirSelected == '' || getParentDirectory(task.savepath) == taskDirSelected) && task.taskname.includes(taskNameFilter)">
+          <hr>
+          <div class="form-group row" style="display:flex; align-items:center">
+            <div class="col-9" data-toggle="collapse" :data-target="'#collapse_'+index" aria-expanded="true" :aria-controls="'collapse_'+index">
+              <div class="btn btn-block text-left">
+                <i class="bi bi-caret-right-fill"></i> #<span v-html="`${index+1}: ${task.taskname}`"></span>
+              </div>
+            </div>
+            <div class="col-3 text-right">
+              <button class="btn btn-warning" v-if="task.shareurl_ban" v-html="task.shareurl_ban" disabled></button>
+              <button type="button" class="btn btn-outline-primary" @click="runScriptNow(index)" title="运行此任务" v-else><i class="bi bi-play-fill"></i></button>
+              <button type="button" class="btn btn-outline-danger" @click="removeTask(index)" title="删除此任务"><i class="bi bi-trash3-fill"></i></button>
+            </div>
+          </div>
+          <div class="collapse" :id="'collapse_'+index" style="padding-left:2em">
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">任务名称</label>
+              <div class="col-sm-10">
+                <div class="input-group">
+                  <input type="text" name="taskname[]" class="form-control" v-model="task.taskname" placeholder="必填">
+                  <div class="input-group-append" v-if="task.taskname">
+                    <div class="input-group-text">
+                      <a target="_blank" :href="`https://www.google.com/search?q=%22pan.quark%22+${task.taskname}`"><i class="bi bi-search"></i></a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">分享链接</label>
+              <div class="col-sm-10">
+                <div class="input-group">
+                  <input type="text" name="shareurl[]" class="form-control" v-model="task.shareurl" placeholder="必填" @input="clearShareurlBan(task)">
+                  <div class="input-group-append" v-if="task.shareurl">
+                    <div class="input-group-text">
+                      <a target="_blank" :href="task.shareurl"><i class="bi bi-box-arrow-up-right"></i></a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">保存路径</label>
+              <div class="col-sm-10">
+                <div class="input-group">
+                  <input type="text" name="savepath[]" class="form-control" v-model="task.savepath" placeholder="必填">
+                  <div class="input-group-append">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" @click="getSavepathDirs(task.savepath)" data-toggle="dropdown" aria-expanded="false">选择</button>
+                    <div class="dropdown-menu" style="max-height: 300px; overflow-y: auto;">
+                      <a class="dropdown-item" @click.stop.prevent="selectSavepath(index,getParentDirectory(task.savepath),'..')" href="#">..</a>
+                      <span v-if="!savepaths.some(item => item.dir)" class="dropdown-item disabled">无子目录</span>
+                      <a v-for="(item, key) in savepaths" :class="{'disabled': item.fid === 0 || !item.dir}" class="dropdown-item" @click.stop.prevent="selectSavepath(index,item.fid,item.file_name)" href="#">
+                        <i class="bi" :class="item.dir ? 'bi-folder2' : 'bi-file-earmark'"></i> {{ item.file_name }}
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">保存规则</label>
+              <div class="col-sm-10">
+                <div class="input-group">
+                  <div class="input-group-prepend">
+                    <span class="input-group-text">正则处理</span>
+                  </div>
+                  <input type="text" name="pattern[]" class="form-control" v-model="task.pattern" placeholder="匹配表达式" list="magicRegex">
+                  <input type="text" name="replace[]" class="form-control" v-model="task.replace" placeholder="替换表达式">
+                  <div class="input-group-append">
+                    <div class="input-group-text">
+                      <input type="checkbox" title="忽略后缀" v-model="task.ignore_extension">&nbsp;忽略后缀
+                    </div>
+                  </div>
+                </div>
+                <datalist id="magicRegex">
+                  <option v-for="(value, key) in formData.magic_regex" :key="key" :value="`${key}`" v-html="`${value.pattern} → ${value.replace}`"></option>
+                </datalist>
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">文件开始</label>
+              <div class="col-sm-10">
+                <div class="input-group">
+                  <input type="text" class="form-control" placeholder="可选" name="startfid[]" v-model="task.startfid">
+                  <div class="input-group-append" v-if="task.shareurl">
+                    <button class="btn btn-outline-secondary" type="button" @click="showShareFiles(index)">选择</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">更子目录</label>
+              <div class="col-sm-10">
+                <input type="text" name="update_subdir[]" class="form-control" v-model="task.update_subdir" placeholder="可选，需更新子目录的正则式，多项以|分割，如 4k|1080p ，注意！深层嵌套目录慎用 .* ！" title="注意！深层嵌套目录逐级索引，工作强度会非常大，慎用！">
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">截止日期</label>
+              <div class="col-sm-10">
+                <input type="date" name="enddate[]" class="form-control" v-model="task.enddate" placeholder="可选">
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">运行星期</label>
+              <div class="col-sm-10">
+                <div class="form-check form-check-inline" v-for="(day, index) in weekdays" :key="index">
+                  <input class="form-check-input" type="checkbox" v-model="task.runweek" :value="index+1">
+                  <label class="form-check-label" v-html="day"></label>
+                </div>
+              </div>
+            </div>
+            <div class="form-group row">
+              <label class="col-sm-2 col-form-label">Emby ID</label>
+              <div class="col-sm-10">
+                <input type="number" name="emby_id[]" class="form-control" v-model="task.emby_id" placeholder="可选">
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="row">
+        <div class="col-sm-12 text-center">
+          <button type="button" class="btn btn-primary" @click="addTask()"><i class="bi bi-plus"></i> 增加任务</button>
+        </div>
+      </div>
+      <hr>
+      <div class="row">
+        <div class="col-sm-12 text-center">
+          <p>
+            <a target="_blank" href="https://github.com/Cp0204/quark-auto-save"><i class="bi bi-github"></i> Cp0204/quark-auto-save</a> <span v-html="versionTips"></span>
+          </p>
+        </div>
+      </div>
+      <div class="bottom-buttons">
+        <button class="btn btn-success"><i class="bi bi-save"></i> 保存</button>
+        <button type="button" class="btn btn-primary" @click="runScriptNow()"><i class="bi bi-play-fill"></i> 运行</button>
+        <button type="button" class="btn btn-info" @click="scrollToX(0)" @dblclick="scrollToX()" data-toggle="tooltip" data-placement="top" title="单击回顶，双击到底"><i class="bi bi-chevron-bar-up"></i> 回顶</button>
+        <a class="btn btn-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> 退出</a>
+      </div>
+    </form>
+
+    <!-- 模态框 运行日志 -->
+    <div class="modal" tabindex="-1" id="logModal">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><b>运行日志</b>
+              <div v-if="modalLoading" class="spinner-border spinner-border-sm m-1" role="status"></div>
+            </h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <pre v-html="run_log"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模态框 分享文件列表 -->
+    <div class="modal" tabindex="-1" id="shareDetailModal">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><b>分享文件列表</b>
+              <div v-if="modalLoading" class="spinner-border spinner-border-sm m-1" role="status"></div>
+            </h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-warning" v-if="shareFiles.error" v-html="shareFiles.error"></div>
+            <table class="table table-hover table-sm" v-else-if="!modalLoading" title="请选择转存起始文件，将只转存修改日期>选中文件的文件">
+              <thead>
+                <tr>
+                  <!-- <th scope="col">fid</th> -->
+                  <th scope="col">文件名</th>
+                  <th scope="col">大小</th>
+                  <th scope="col">修改日期 ↓</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colspan="4"><i class="bi bi-folder-plus"></i> 后续更新的文件...</td>
+                </tr>
+                <tr v-for="(file, key) in shareFiles" :key="key" @click="selectStartFid(file.fid)" style="cursor: pointer;">
+                  <!-- <td>{{file.fid}}</td> -->
+                  <td><i class="bi" :class="file.dir ? 'bi-folder2' : 'bi-file-earmark'"></i> {{file.file_name}}</td>
+                  <td>{{file.size | size}}</td>
+                  <td>{{file.last_update_at | ts2date}}</td>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 引入 Bootstrap JS -->
+  <script src="./static/js/jquery-3.5.1.slim.min.js"></script>
+  <script src="./static/js/bootstrap.bundle.min.js"></script>
+
+  <!-- 引入 Vue.js -->
+  <script src="./static/js/vue@2.js"></script>
+  <script src="./static/js/axios.min.js"></script>
+
+  <script>
+    var app = new Vue({
+      el: '#app',
+      data: {
+        version: "[[ version ]]",
+        versionTips: "",
+        weekdays: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+        formData: {
+          cookie: [],
+          push_config: {},
+          emby: {
+            url: "",
+            apikey: ""
+          },
+          tasklist: [],
+          magic_regex: {}
+        },
+        newTask: {
+          taskname: "",
+          shareurl: "",
+          savepath: "",
+          pattern: "",
+          replace: "",
+          enddate: "",
+          emby_id: "",
+          ignore_extension: false,
+          runweek: [1, 2, 3, 4, 5, 6, 7]
+        },
+        run_log: "",
+        taskDirs: [""],
+        taskDirSelected: "",
+        taskNameFilter: "",
+        savepaths: [],
+        modalLoading: false,
+        shareFiles: [],
+        forceTaskIndex: null
+      },
+      filters: {
+        ts2date: function (value) {
+          const date = new Date(value);
+          return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+        },
+        size: function (value) {
+          if (!value) return "0B";
+          const unitArr = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+          const srcsize = parseFloat(value);
+          const index = srcsize ? Math.floor(Math.log(srcsize) / Math.log(1024)) : 0;
+          const size = (srcsize / Math.pow(1024, index)).toFixed(2).replace(/\.?0+$/, "");
+          return size + unitArr[index];
+        }
+      },
+      watch: {
+        'formData.push_config': {
+          handler: function (newVal, oldVal) {
+            for (key in newVal) {
+              if (typeof newVal[key] === 'string') {
+                if (newVal[key].toLowerCase() === 'false') {
+                  this.$set(this.formData.push_config, key, false);
+                } else if (newVal[key].toLowerCase() === 'true') {
+                  this.$set(this.formData.push_config, key, true);
+                }
+              }
+            }
+          },
+          deep: true
+        }
+      },
+      mounted() {
+        this.fetchData();
+        this.checkNewVersion();
+        $('[data-toggle="tooltip"]').tooltip()
+      },
+      methods: {
+        checkNewVersion() {
+          this.versionTips = this.version;
+          axios.get('https://api.github.com/repos/Cp0204/quark-auto-save/tags')
+            .then(response => {
+              latestVersion = response.data[0].name;
+              console.log(`检查版本：当前 ${this.version} 最新 ${latestVersion}`);
+              if (latestVersion != this.version) {
+                this.versionTips += ` <sup><span class="badge badge-pill badge-danger">${latestVersion}</span></sup>`;
+              }
+            })
+            .catch(error => {
+              console.error('Error:', error);
+            });
+        },
+        fetchData() {
+          axios.get('/data')
+            .then(response => {
+              // cookie兼容
+              if (typeof response.data.cookie === 'string')
+                response.data.cookie = [response.data.cookie];
+              // 添加星期预设
+              response.data.tasklist = response.data.tasklist.map(task => {
+                if (!task.hasOwnProperty('runweek')) {
+                  task.runweek = [1, 2, 3, 4, 5, 6, 7];
+                }
+                return task;
+              });
+              // 添加emby预设
+              if (!response.data.hasOwnProperty('emby')) {
+                response.data.emby = { ...this.emby };
+              }
+              // 获取所有任务父目录
+              response.data.tasklist.forEach(item => {
+                parentDir = this.getParentDirectory(item.savepath)
+                if (!this.taskDirs.includes(parentDir))
+                  this.taskDirs.push(parentDir);
+              });
+              this.formData = response.data;
+            })
+            .catch(error => {
+              console.error('Error fetching data:', error);
+            });
+        },
+        saveConfig() {
+          axios.post('/update', this.formData)
+            .then(response => {
+              alert(response.data);
+              console.log('Config saved successfully:', response.data);
+            })
+            .catch(error => {
+              console.error('Error saving config:', error);
+            });
+        },
+        addCookie() {
+          this.formData.cookie.push("");
+        },
+        removeCookie(index) {
+          if (this.formData.cookie[index] == "" || confirm("确认删除吗？"))
+            this.formData.cookie.splice(index, 1);
+        },
+        addPush() {
+          key = prompt("增加的键名", "");
+          if (key != "" && key != null)
+            this.$set(this.formData.push_config, key, "");
+        },
+        removePush(key) {
+          if (confirm("确认删除吗？"))
+            this.$delete(this.formData.push_config, key);
+        },
+        addTask() {
+          newTask = { ...this.newTask }
+          newTask.taskname = this.taskNameFilter
+          newTask.savepath = this.taskDirSelected + "/" + newTask.taskname
+          this.formData.tasklist.push(newTask);
+          // 滚到最下
+          setTimeout(() => {
+            $('#collapse_' + (this.formData.tasklist.length - 1)).collapse('show').on('shown.bs.collapse', () => {
+              this.scrollToX();
+            });
+          }, 1);
+        },
+        removeTask(index) {
+          if (confirm("确认删除任务 [#" + (index + 1) + ": " + this.formData.tasklist[index].taskname + "] 吗？"))
+            this.formData.tasklist.splice(index, 1);
+        },
+        clearShareurlBan(task) {
+          delete task.shareurl_ban;
+        },
+        clearData(target) {
+          this[target] = "";
+        },
+        selectSavepath(index, fid, name) {
+          const savepath = name == ".." ? this.getParentDirectory(this.formData.tasklist[index].savepath) : `/${this.formData.tasklist[index].savepath}/${name}`.replace(/\/{2,}/g, '/')
+          Vue.set(this.formData.tasklist[index], 'savepath', savepath);
+          this.getSavepathDirs(fid);
+        },
+        getSavepathDirs(fid = 0) {
+          if (fid.includes('/')) {
+            params = { path: fid }
+          } else {
+            params = { fid: fid }
+          }
+          this.savepaths = [{ fid: 0, dir: true, file_name: "加载中..." }]
+          console.log(this.savepaths)
+          axios.get('/get_savepath', { params: params })
+            .then(response => {
+              this.savepaths = response.data
+              console.log(this.savepaths)
+            })
+            .catch(error => {
+              console.error('Error get_share_files:', error);
+            });
+        },
+        selectStartFid(fid) {
+          Vue.set(this.formData.tasklist[this.forceTaskIndex], 'startfid', fid);
+          $('#shareDetailModal').modal('toggle')
+        },
+        showShareFiles(index) {
+          this.shareFiles = []
+          $('#shareDetailModal').modal('toggle')
+          this.modalLoading = true
+          axios.get('/get_share_files', { params: { shareurl: this.formData.tasklist[index].shareurl } })
+            .then(response => {
+              this.forceTaskIndex = index
+              this.shareFiles = response.data;
+              this.modalLoading = false
+            })
+            .catch(error => {
+              console.error('Error get_share_files:', error);
+            });
+        },
+        runScriptNow(task_index = "") {
+          $('#logModal').modal('toggle')
+          this.modalLoading = true
+          this.run_log = ''
+          const source = new EventSource(`/run_script_now?task_index=${task_index}`);
+          source.onmessage = (event) => {
+            if (event.data == "[DONE]") {
+              this.modalLoading = false
+              source.close();
+            } else {
+              this.run_log += event.data + '\n';
+              // 在更新 run_log 后将滚动条滚动到底部
+              this.$nextTick(() => {
+                const modalBody = document.querySelector('.modal-body');
+                modalBody.scrollTop = modalBody.scrollHeight;
+              });
+            }
+          };
+          source.onerror = (error) => {
+            this.modalLoading = false
+            console.error('Error:', error);
+            source.close();
+          };
+        },
+        getParentDirectory(path) {
+          parentDir = path.substring(0, path.lastIndexOf('/'))
+          if (parentDir == "")
+            parentDir = "/"
+          return parentDir;
+        },
+        scrollToX(top = undefined) {
+          if (top == undefined)
+            top = document.documentElement.scrollHeight
+          window.scrollTo({
+            top: top,
+            behavior: "smooth"
+          });
+        }
+      }
+    });
+  </script>
+</body>
+
+</html>
