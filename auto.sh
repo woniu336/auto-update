@@ -145,7 +145,7 @@ test_auto_share() {
 
 # 手动运行测试
 run_manual_test() {
-    echo -e "${YELLOW}开始手动运行测试...${NC}"
+    echo -e "${YELLOW}开始手动运行测试，需要一点时间...${NC}"
     
     if [ ! -f "$RUN_ALL_SCRIPT" ]; then
         echo -e "${RED}错误：找不到 run_all.sh 脚本${NC}"
@@ -183,7 +183,7 @@ set_cron_job() {
 
 # 设置脚本启动快捷键
 set_shortcut() {
-    echo -e "${YELLOW}请输入快捷键命令 (例如: qk):${NC}"
+    echo -e "${YELLOW}请输入快捷键命令 (例如: q):${NC}"
     read shortcut
     
     if [ -z "$shortcut" ]; then
