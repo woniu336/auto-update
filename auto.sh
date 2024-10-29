@@ -13,6 +13,7 @@ CONFIG_FILE="./kua-main/quark_config.json"
 COOKIE_FILE="./auto/cookie.txt"
 RUN_ALL_SCRIPT="./run_all.sh"
 MOVIE_LINKS_FILE="./kua-main/check_movie_links.py"  # 添加这行
+SCRAPER_FILE="./auto/scraper.py"  # 添加新的文件路径
 
 # 显示菜单部分
 show_menu() {
@@ -25,8 +26,9 @@ show_menu() {
     echo -e "${LIGHT_CYAN}│  3.${NC} 设置钉钉通知                         ${CYAN}│${NC}"
     echo -e "${LIGHT_CYAN}│  4.${NC} 设置夸克网盘转存目录ID               ${CYAN}│${NC}"
     echo -e "${LIGHT_CYAN}│  5.${NC} 自动分享测试                         ${CYAN}│${NC}"
-    echo -e "${LIGHT_CYAN}│  6.${NC} 手动运行测试                         ${CYAN}│${NC}"
-    echo -e "${LIGHT_CYAN}│  7.${NC} 设置定时任务                         ${CYAN}│${NC}"
+    echo -e "${LIGHT_CYAN}│  6.${NC} 设置爬取页数                         ${CYAN}│${NC}"
+    echo -e "${LIGHT_CYAN}│  7.${NC} 手动运行测试                         ${CYAN}│${NC}"
+    echo -e "${LIGHT_CYAN}│  8.${NC} 设置定时任务                         ${CYAN}│${NC}"
     echo -e "${LIGHT_CYAN}│  0.${NC} 退出                                 ${CYAN}│${NC}"
     echo -e "${CYAN}└────────────────────────────────────────────┘${NC}"
 }
@@ -139,6 +141,14 @@ test_auto_share() {
     echo -e "${YELLOW}开始自动分享测试...${NC}"
     current_dir=$(pwd)
     
+    # 从run_all.sh中获取fid
+    fid=$(grep -o 'fid [0-9a-f]\{32\}' "$RUN_ALL_SCRIPT" | head -1 | awk '{print $2}')
+    
+    if [ -z "$fid" ]; then
+        echo -e "${RED}错误：无法获取fid，请先在菜单4中设置夸克网盘转存目录ID${NC}"
+        return
+    fi
+    
     if [ ! -d "./auto" ]; then
         echo -e "${RED}错误：找不到 auto 目录${NC}"
         return
@@ -146,17 +156,45 @@ test_auto_share() {
     
     cd ./auto
     echo -e "${CYAN}执行同步目录...${NC}"
-    php ./QuarkService.php --options syn_dir --fid 4a39e2d04e6c497f88184c58d8662f75 || {
+    php ./QuarkService.php --options syn_dir --fid ${fid} || {
         echo -e "${RED}QuarkService.php syn_dir 执行失败${NC}"
     }
+    sleep 2
+    sudo chown root:root quark-dir-${fid}.txt || echo "更改dir文件所有者失败"
     
     echo -e "${CYAN}执行分享...${NC}"
-    php ./QuarkService.php --options share --fid 4a39e2d04e6c497f88184c58d8662f75 --type 'repeat' || {
+    php ./QuarkService.php --options share --fid ${fid} --type 'repeat' || {
         echo -e "${RED}QuarkService.php share 执行失败${NC}"
     }
+    sleep 2
+    sudo chown root:root quark-share-${fid}.txt || echo "更改share文件所有者失败"
     
     cd "$current_dir"
     echo -e "${GREEN}自动分享测试完成${NC}"
+}
+
+# 新增：设置爬取页数
+set_max_pages() {
+    echo -e "${YELLOW}请输入要爬取的页面数 (当前默认为1):${NC}"
+    read max_pages
+
+    # 验证输入是否为正整数
+    if ! [[ "$max_pages" =~ ^[0-9]+$ ]] || [ "$max_pages" -lt 1 ]; then
+        echo -e "${RED}错误：请输入大于0的整数${NC}"
+        return
+    fi  # 将 } 改为 fi
+
+    # 检查文件是否存在
+    if [ ! -f "$SCRAPER_FILE" ]; then
+        echo -e "${RED}错误：找不到文件 $SCRAPER_FILE${NC}"
+        return
+    fi  # 将 } 改为 fi
+
+    # 更新 scraper.py 中的 max_pages
+    sed -i "s/max_pages = [0-9][0-9]*/max_pages = $max_pages/" "$SCRAPER_FILE"
+
+    echo -e "${GREEN}爬取页数已更新为: $max_pages${NC}"
+    echo -e "${CYAN}已更新文件：$SCRAPER_FILE${NC}"
 }
 
 # 手动运行测试
@@ -213,8 +251,9 @@ while true; do
         3) set_dingtalk_notify; wait_for_enter ;;
         4) set_directory_id; wait_for_enter ;;
         5) test_auto_share; wait_for_enter ;;
-        6) run_manual_test; wait_for_enter ;;
-        7) set_cron_job; wait_for_enter ;;
+        6) set_max_pages; wait_for_enter ;;
+        7) run_manual_test; wait_for_enter ;;
+        8) set_cron_job; wait_for_enter ;;
         0) echo -e "${GREEN}退出程序${NC}"; exit 0 ;;
         *) echo -e "${RED}无效的选择，请重新输入${NC}"; wait_for_enter ;;
     esac

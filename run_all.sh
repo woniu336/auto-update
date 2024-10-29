@@ -28,8 +28,8 @@ LOG_FILE="execution.log"
   # 自动分享
   echo "开始自动分享..."
   cd ../auto
-  php ./QuarkService.php --options syn_dir --fid 4a39e2d04e6c497f88184c58d8662f75 || echo "QuarkService.php syn_dir 执行失败"
-  php ./QuarkService.php --options share --fid 4a39e2d04e6c497f88184c58d8662f75 --type 'repeat' || echo "QuarkService.php share 执行失败"
+  php ./QuarkService.php --options syn_dir --fid 4a39e2d04e6c497f88184c58d8662f || echo "QuarkService.php syn_dir 执行失败"
+  php ./QuarkService.php --options share --fid 4a39e2d04e6c497f88184c58d8662f --type 'repeat' || echo "QuarkService.php share 执行失败"
   
   # 替换夸克网盘
   echo "开始替换夸克网盘..."

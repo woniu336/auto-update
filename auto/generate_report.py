@@ -9,9 +9,11 @@ import json
 from pathlib import Path
 import hashlib
 import math
+import shutil
 
 # 全局常量定义
 CACHE_DURATION = 86400 * 30  # 缓存时间30天
+
 
 class Movie:
     def __init__(self, name, quark_link, baidu_link, uc_link, douban_link):
@@ -24,6 +26,7 @@ class Movie:
         self.image_url = ''
         self.cache_key = self._generate_cache_key()
         self.status = None  # 添加状态属性
+        self.is_new = False  # 添加新增标记
 
     def extract_douban_id(self):
         """从豆瓣链接中提取豆瓣ID"""
@@ -37,10 +40,14 @@ class Movie:
         else:
             return f"name_{hashlib.md5(self.name.encode('utf-8')).hexdigest()}"
 
+    def get_base_name(self):
+        """获取不包含括号内容的基本名称"""
+        return re.sub(r'\([^)]*\)', '', self.name).strip()
+
     async def fetch_douban_image(self, session, headers, cache_dir, max_retries=3, retry_delay=5):
         """异步获取豆瓣图片链接，带重试机制和缓存"""
         cache_file = Path(cache_dir) / f"{self.cache_key}.json"
-        
+
         if cache_file.exists():
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
@@ -56,7 +63,7 @@ class Movie:
         for retry in range(max_retries):
             try:
                 await asyncio.sleep(random.uniform(1, 3))
-                
+
                 headers.update({
                     'Cookie': 'bid=' + ''.join(random.choice('0123456789abcdef') for _ in range(11)),
                     'Upgrade-Insecure-Requests': '1',
@@ -66,18 +73,18 @@ class Movie:
                     'Sec-Fetch-User': '?1',
                     'Cache-Control': 'max-age=0'
                 })
-                
+
                 async with session.get(self.douban_link, headers=headers, timeout=10) as response:
                     if response.status != 200:
                         raise Exception(f"HTTP {response.status}")
-                    
+
                     if 'sec.douban.com' in str(response.url):
                         self.image_url = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7pnIDopoHpqozor4E8L3RleHQ+PC9zdmc+'
                         return
-                    
+
                     html = await response.text()
                     soup = BeautifulSoup(html, 'html.parser')
-                    
+
                     img_div = soup.find('div', id='mainpic')
                     if img_div:
                         img_tag = img_div.find('img')
@@ -93,9 +100,9 @@ class Movie:
                         self._save_to_cache(cache_file)
                         print(f"已缓存图片: {self.name}")
                         return
-                    
+
                     raise Exception("未找到图片链接")
-                    
+
             except Exception as e:
                 if retry < max_retries - 1:
                     print(f"重试 {retry + 1}/{max_retries} 获取图片 {self.name}: {str(e)}")
@@ -119,6 +126,7 @@ class Movie:
         except Exception as e:
             print(f"保存缓存失败 {self.name}: {str(e)}")
 
+
 class ReportGenerator:
     def __init__(self, log_path, output_html, quark_log_path='../kua-main/quark_save.log', cache_dir='./cache'):
         self.log_path = log_path
@@ -131,10 +139,11 @@ class ReportGenerator:
         self.violation_movies = []  # 存储违规影片列表
         self.check_result_path = '../kua-main/movie_check_result.log'
         self.check_results = {}  # 存储检查结果
-        
+        self.previous_movies = set()  # 存储上一次的电影列表
+
         # 创建缓存目录
         os.makedirs(cache_dir, exist_ok=True)
-        
+
         # 清理过期缓存
         self._clean_expired_cache()
 
@@ -155,6 +164,21 @@ class ReportGenerator:
         except Exception as e:
             print(f"清理缓存目录失败: {str(e)}")
 
+    def load_previous_movies(self):
+        """加载上一次的电影列表"""
+        try:
+            if os.path.exists(self.log_path + '.bak'):
+                with open(self.log_path + '.bak', 'r', encoding='utf-8') as file:
+                    content = file.read()
+                    movie_pattern = re.compile(r'影片名称:\s*(.*?)\n', re.DOTALL)
+                    for match in movie_pattern.finditer(content):
+                        name = match.group(1).strip()
+                        # 存储不带括号的基本名称
+                        base_name = re.sub(r'\([^)]*\)', '', name).strip()
+                        self.previous_movies.add(base_name)
+        except Exception as e:
+            print(f"加载上一次电影列表失败: {str(e)}")
+
     def parse_check_results(self):
         """解析资源检查结果日志"""
         try:
@@ -168,28 +192,29 @@ class ReportGenerator:
                         name = parts[0].strip()
                         status = parts[2].strip()
                         self.check_results[name] = status
-                        
+
             # 更新电影状态
             for movie in self.movies:
                 movie.status = self.check_results.get(movie.name, '无效')
-                
+
         except Exception as e:
             print(f"解析检查结果失败: {str(e)}")
 
     def parse_log(self):
+        self.load_previous_movies()  # 先加载上一次的电影列表
+
         with open(self.log_path, 'r', encoding='utf-8') as file:
             content = file.read()
 
-        # 修正后的正则表达式，确保匹配正确的影片名称和链接
         inaccessible_section = re.search(
-            r'无法访问的影片页面列表（404或其他错误）:\n((?:- .+\n)*)', 
+            r'无法访问的影片页面列表（404或其他错误）:\n((?:- .+\n)*)',
             content,
             re.MULTILINE
         )
         if inaccessible_section:
             self.inaccessible_urls = re.findall(r'- (.+)', inaccessible_section.group(1))
         else:
-            self.inaccessible_urls = []  # 确保当没有匹配时不会引发错误
+            self.inaccessible_urls = []
 
         total_match = re.search(r'总影片数量:\s*(\d+)', content)
         self.total_movies = int(total_match.group(1)) if total_match else 0
@@ -202,7 +227,7 @@ class ReportGenerator:
             r'\s+豆瓣链接:\s*(.*?)(?:\n|$)',
             re.DOTALL
         )
-        
+
         for match in movie_pattern.finditer(content):
             name, quark, baidu, uc, douban = match.groups()
             movie = Movie(
@@ -212,17 +237,29 @@ class ReportGenerator:
                 uc_link=uc.strip() if uc else '',
                 douban_link=douban.strip() if douban else ''
             )
+            # 检查是否为新增电影
+            base_name = movie.get_base_name()
+            if base_name not in self.previous_movies:
+                movie.is_new = True
+                print(f"新增影片: {movie.name}")
+
             self.movies.append(movie)
+
+        # 备份当前的日志文件
+        try:
+            shutil.copy2(self.log_path, self.log_path + '.bak')
+        except Exception as e:
+            print(f"备份日志文件失败: {str(e)}")
 
     def parse_quark_log(self):
         """解析夸克日志文件，提取违规影片"""
         try:
             with open(self.quark_log_path, 'r', encoding='utf-8') as file:
                 content = file.read()
-            
+
             # 分割成每个任务块
             task_blocks = re.split(r'#\d+------------------\n', content)
-            
+
             for block in task_blocks:
                 if '：文件涉及违规内容' in block:
                     # 提取任务名称
@@ -231,7 +268,7 @@ class ReportGenerator:
                         movie_name = match.group(1).strip()
                         if movie_name and movie_name not in self.violation_movies:
                             self.violation_movies.append(movie_name)
-            
+
             print(f"发现 {len(self.violation_movies)} 个违规影片")
         except Exception as e:
             print(f"解析夸克日志失败: {str(e)}")
@@ -251,16 +288,16 @@ class ReportGenerator:
             'Referer': 'https://movie.douban.com'
         }
 
-        connector = aiohttp.TCPConnector(limit=5)  # 限制并发连接数
+        connector = aiohttp.TCPConnector(limit=5)
         async with aiohttp.ClientSession(connector=connector) as session:
             tasks = []
             for movie in self.movies:
                 headers['User-Agent'] = random.choice(user_agents)
                 task = movie.fetch_douban_image(session, headers.copy(), self.cache_dir)
                 tasks.append(task)
-            
+
             await asyncio.gather(*tasks)
-            
+
     def _generate_violation_section(self):
         """生成违规影片和无法访问URL展示区域的HTML"""
         # 违规影片部分
@@ -295,15 +332,6 @@ class ReportGenerator:
         
         return violation_section + inaccessible_section
 
-    async def run(self):
-        self.parse_log()
-        self.parse_quark_log()
-        self.parse_check_results()  # 添加检查结果解析
-        print("开始异步获取图片...")
-        await self.fetch_all_images()
-        print("图片获取完成，开始生成HTML...")
-        self.generate_html()
-    
     def generate_html(self):
         # 定义分页变量
         movies_per_page = 25
@@ -440,6 +468,18 @@ class ReportGenerator:
         .status-invalid {
             background-color: #f44336;
         }
+        .new-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: #ff4757;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1;
+        }
         .generation-time {
             text-align: center;
             color: #666;
@@ -471,6 +511,18 @@ class ReportGenerator:
             cursor: not-allowed;
         }
         '''
+
+        # 在JavaScript中修改moviesData的生成
+        movies_data_json = json.dumps([{
+            'name': movie.name,
+            'image_url': movie.image_url,
+            'douban_link': movie.douban_link,
+            'quark_link': movie.quark_link,
+            'baidu_link': movie.baidu_link,
+            'uc_link': movie.uc_link,
+            'status': movie.status,
+            'is_new': movie.is_new  # 添加新增标记
+        } for movie in self.movies], ensure_ascii=False)
 
         html_content = f'''
 <!DOCTYPE html>
@@ -522,15 +574,7 @@ class ReportGenerator:
     </div>
 
     <script>
-        const moviesData = {json.dumps([{
-            'name': movie.name,
-            'image_url': movie.image_url,
-            'douban_link': movie.douban_link,
-            'quark_link': movie.quark_link,
-            'baidu_link': movie.baidu_link,
-            'uc_link': movie.uc_link,
-            'status': movie.status
-        } for movie in self.movies])};
+        const moviesData = {movies_data_json};
         
         const MOVIES_PER_PAGE = {movies_per_page};
         let currentPage = 1;
@@ -565,6 +609,7 @@ class ReportGenerator:
                 
                 const movieCard = `
                     <div class="movie-card">
+                        ${{movie.is_new ? '<div class="new-badge">新增</div>' : ''}}
                         ${{getStatusBadgeHTML(movie.status)}}
                         <img class="movie-image" data-src="${{movie.image_url}}" alt="${{movie.name}} 海报" 
                              src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7liqDovb3kuK0uLi48L3RleHQ+PC9zdmc+"
@@ -660,6 +705,16 @@ class ReportGenerator:
         with open(self.output_html, 'w', encoding='utf-8') as file:
             file.write(html_content)
         print(f"HTML 报告已生成: {self.output_html}")
+
+    async def run(self):
+        self.parse_log()
+        self.parse_quark_log()
+        self.parse_check_results()
+        print("开始异步获取图片...")
+        await self.fetch_all_images()
+        print("图片获取完成，开始生成HTML...")
+        self.generate_html()
+
 
 if __name__ == "__main__":
     generator = ReportGenerator(log_path='./report.log', output_html='../index.html')
