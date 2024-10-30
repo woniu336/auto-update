@@ -19,6 +19,10 @@ chmod +x auto.sh && ./auto.sh
 
 可以设置定时转存更新
 
+注意：**只有夸克网盘资源是你自己的**（脚本会自动替换），百度和UC依然是低端影视分享出来的。
+
+
+
 ![image.png](https://img.meituan.net/video/9b5427a42bba2dacd64147a8d9a5e9c01041599.png)
 
 
