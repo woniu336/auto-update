@@ -210,6 +210,7 @@ run_manual_test() {
     echo -e "${GREEN}手动运行测试完成${NC}"
 }
 
+
 # 设置定时任务
 set_cron_job() {
     echo -e "${YELLOW}请输入定时任务表达式 (回车默认: 0 7,18 * * * 每天早上7点和下午18点执行):${NC}"
@@ -219,20 +220,43 @@ set_cron_job() {
         cron_expression="0 7,18 * * *"
     fi
     
-    # 获取脚本的绝对路径
-    script_path=$(readlink -f $RUN_ALL_SCRIPT)
+    # 获取脚本的绝对路径和目录
+    script_path=$(readlink -f "$RUN_ALL_SCRIPT")
+    script_dir=$(dirname "$script_path")
     
     # 检查脚本是否存在
     if [ ! -f "$script_path" ]; then
         echo -e "${RED}错误：找不到脚本文件 $script_path${NC}"
-        return
+        return 1
     fi
     
-    # 添加或更新定时任务
-    (crontab -l 2>/dev/null | grep -v "$RUN_ALL_SCRIPT"; echo "$cron_expression $script_path") | crontab -
+    # 检查脚本是否有执行权限
+    if [ ! -x "$script_path" ]; then
+        echo -e "${YELLOW}警告：脚本没有执行权限，正在添加执行权限...${NC}"
+        chmod +x "$script_path"
+    fi
     
-    echo -e "${GREEN}定时任务已设置: $cron_expression${NC}"
-    echo -e "${CYAN}将在每天早上7点和下午18点执行脚本: $script_path${NC}"
+    # 构建完整的定时任务命令
+    cron_command="cd ${script_dir} && ./$(basename "$RUN_ALL_SCRIPT") >/dev/null 2>&1"
+    
+    # 备份当前的 crontab
+    current_crontab=$(crontab -l 2>/dev/null)
+    
+    # 移除包含 run_all.sh 的旧任务并添加新任务
+    (echo "$current_crontab" | grep -v "run_all.sh"; echo "$cron_expression $cron_command") | sort -u | crontab -
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}定时任务已成功设置${NC}"
+        echo -e "${CYAN}执行时间: $cron_expression${NC}"
+        echo -e "${CYAN}执行命令: $cron_command${NC}"
+        
+        # 显示当前所有定时任务
+        echo -e "${YELLOW}当前所有定时任务:${NC}"
+        crontab -l
+    else
+        echo -e "${RED}设置定时任务失败${NC}"
+        return 1
+    fi
 }
 
 # 等待用户按Enter键
