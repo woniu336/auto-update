@@ -1,12 +1,15 @@
-
-
-
 ## 使用方法
 
 ```
 cd /www/wwwboot/123.com  # 定位到站点目录，可以是静态
-git clone https://github.com/woniu336/auto-update.git
+```
 
+然后：
+
+
+
+```
+git clone https://github.com/woniu336/auto-update.git
 cd auto-update
 chmod +x run_all.sh
 chmod +x auto.sh && ./auto.sh
@@ -20,8 +23,6 @@ chmod +x auto.sh && ./auto.sh
 可以设置定时转存更新
 
 注意：**只有夸克网盘资源是你自己的**（脚本会自动替换），百度和UC依然是低端影视分享出来的。
-
-
 
 ![image.png](https://img.meituan.net/video/9b5427a42bba2dacd64147a8d9a5e9c01041599.png)
 
