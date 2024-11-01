@@ -126,7 +126,6 @@ class Movie:
         except Exception as e:
             print(f"保存缓存失败 {self.name}: {str(e)}")
 
-
 class ReportGenerator:
     def __init__(self, log_path, output_html, quark_log_path='../kua-main/quark_save.log', cache_dir='./cache'):
         self.log_path = log_path
@@ -297,7 +296,6 @@ class ReportGenerator:
                 tasks.append(task)
 
             await asyncio.gather(*tasks)
-
     def _generate_violation_section(self):
         """生成违规影片和无法访问URL展示区域的HTML"""
         # 违规影片部分
@@ -337,6 +335,18 @@ class ReportGenerator:
         movies_per_page = 25
         total_pages = math.ceil(len(self.movies) / movies_per_page)
         current_time = time.strftime("%Y-%m-%d %H:%M", time.localtime())
+
+        # 将电影数据转换为JSON
+        movies_data_json = json.dumps([{
+            'name': movie.name,
+            'image_url': movie.image_url,
+            'douban_link': movie.douban_link,
+            'quark_link': movie.quark_link,
+            'baidu_link': movie.baidu_link,
+            'uc_link': movie.uc_link,
+            'status': movie.status,
+            'is_new': movie.is_new
+        } for movie in self.movies], ensure_ascii=False)
 
         # CSS 样式
         css_styles = '''
@@ -512,18 +522,6 @@ class ReportGenerator:
         }
         '''
 
-        # 在JavaScript中修改moviesData的生成
-        movies_data_json = json.dumps([{
-            'name': movie.name,
-            'image_url': movie.image_url,
-            'douban_link': movie.douban_link,
-            'quark_link': movie.quark_link,
-            'baidu_link': movie.baidu_link,
-            'uc_link': movie.uc_link,
-            'status': movie.status,
-            'is_new': movie.is_new  # 添加新增标记
-        } for movie in self.movies], ensure_ascii=False)
-
         html_content = f'''
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -575,7 +573,6 @@ class ReportGenerator:
 
     <script>
         const moviesData = {movies_data_json};
-        
         const MOVIES_PER_PAGE = {movies_per_page};
         let currentPage = 1;
         
@@ -603,9 +600,9 @@ class ReportGenerator:
             
             moviesData.slice(start, end).forEach(movie => {{
                 const buttons = [];
-                if (movie.quark_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.quark_link}}', '夸克链接')">夸克</button>`);
-                if (movie.baidu_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.baidu_link}}', '百度链接')">百度</button>`);
-                if (movie.uc_link) buttons.push(`<button class="btn btn-copy" onclick="copyToClipboard('${{movie.uc_link}}', 'UC链接')">UC</button>`);
+                if (movie.quark_link) buttons.push(`<button class="btn btn-copy" onclick="window.open('${{movie.quark_link}}', '_blank')">夸克</button>`);
+                if (movie.baidu_link) buttons.push(`<button class="btn btn-copy" onclick="window.open('${{movie.baidu_link}}', '_blank')">百度</button>`);
+                if (movie.uc_link) buttons.push(`<button class="btn btn-copy" onclick="window.open('${{movie.uc_link}}', '_blank')">UC</button>`);
                 
                 const movieCard = `
                     <div class="movie-card">
@@ -613,7 +610,7 @@ class ReportGenerator:
                         ${{getStatusBadgeHTML(movie.status)}}
                         <img class="movie-image" data-src="${{movie.image_url}}" alt="${{movie.name}} 海报" 
                              src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMzAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7liqDovb3kuK0uLi48L3RleHQ+PC9zdmc+"
-                             onclick="extractAndCopyDoubanId('${{movie.douban_link}}')"
+                             onclick="window.open('${{movie.douban_link}}', '_blank')"
                              loading="lazy" referrerpolicy="no-referrer">
                         <div class="movie-info">
                             <div class="movie-title">${{movie.name}}</div>
@@ -650,31 +647,6 @@ class ReportGenerator:
             document.getElementById('nextBtn').disabled = currentPage === totalPages;
             document.getElementById('prevBtnBottom').disabled = currentPage === 1;
             document.getElementById('nextBtnBottom').disabled = currentPage === totalPages;
-        }}
-        
-        function extractAndCopyDoubanId(url) {{
-            if (!url) {{
-                alert('没有豆瓣链接');
-                return;
-            }}
-            const match = url.match(/subject\\/(\\d+)/);
-            if (match && match[1]) {{
-                copyToClipboard(match[1], '豆瓣ID');
-            }} else {{
-                alert('无法提取豆瓣ID');
-            }}
-        }}
-
-        function copyToClipboard(text, type) {{
-            if (!text) {{
-                alert('没有可复制的内容');
-                return;
-            }}
-            navigator.clipboard.writeText(text).then(function() {{
-                alert(type + '已复制到剪贴板');
-            }}).catch(function(err) {{
-                alert('复制失败：' + err);
-            }});
         }}
 
         function initLazyLoading() {{
